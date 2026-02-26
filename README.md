@@ -8,7 +8,13 @@
 Agent_test/
 ├── requirements.txt       # 依赖文件
 ├── config.py              # 配置管理（API Key 等）
-├── tools.py               # 工具集（搜索、天气、计算等）
+├── skills/                # 技能模块（模块化设计）
+│   ├── __init__.py        # 技能导出
+│   ├── search.py          # 搜索技能
+│   ├── weather.py         # 天气技能
+│   ├── calculator.py      # 计算技能
+│   ├── time.py            # 时间技能
+│   └── python_repl.py     # Python执行技能
 ├── agent.py               # 手写版本 Agent（ReAct 模式）
 ├── agent_langchain.py     # LangChain 版本 Agent
 ├── main.py                # 主程序入口
@@ -86,9 +92,9 @@ python main.py --demo
 python compare_test.py
 ```
 
-## 可用工具
+## 可用技能
 
-| 工具名称 | 功能描述 | 需要 API Key |
+| 技能名称 | 功能描述 | 需要 API Key |
 |---------|---------|-------------|
 | `web_search` | 网络搜索（自动选择 Tavily 或 DuckDuckGo） | Tavily 可选 |
 | `tavily_search` | Tavily 搜索（AI 优化，推荐） | ✅ 需要 |

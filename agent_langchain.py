@@ -5,15 +5,15 @@ LangChain 新版本推荐使用 LangGraph 构建 Agent
 这是更现代、更灵活的实现方式
 """
 
-from typing import Optional, List, Dict, Annotated
+from typing import Optional, List
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
+from langchain.memory import ConversationSummaryMemory
 
 from config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL, MAX_ITERATIONS, VERBOSE
-from tools import web_search, get_weather, calculator, get_time, python_repl
+from skills import web_search, get_weather, calculator, get_time, python_repl
 
 
 @tool
@@ -62,11 +62,14 @@ class LangChainAgent:
     基于 LangGraph 的 ReAct Agent
     
     使用 LangGraph (LangChain 新版推荐方式) 构建 Agent
-    优势：
-    1. 更现代的 API
-    2. 更好的状态管理
-    3. 支持复杂的 Agent 工作流
+    使用 ConversationSummaryMemory 自动摘要长对话
     """
+    
+    SYSTEM_PROMPT = """你是一个智能助手，能够使用工具来帮助用户解决问题。
+请始终用中文回答问题。
+在回答之前，请仔细思考是否需要使用工具。"""
+    
+    MAX_MEMORY_TURNS = 10
     
     def __init__(
         self,
@@ -89,38 +92,48 @@ class LangChainAgent:
         
         self.tools = create_tools()
         
-        self.system_prompt = """你是一个智能助手，能够使用工具来帮助用户解决问题。
-请始终用中文回答问题。
-在回答之前，请仔细思考是否需要使用工具。"""
-        
         self.agent = create_react_agent(
             self.llm,
-            self.tools,
-            state_modifier=self.system_prompt
+            self.tools
         )
         
-        self.memory = MemorySaver()
-        self.config = {"configurable": {"thread_id": "agent_chat"}}
+        self.memory: List = []
+        self.summary_memory = ConversationSummaryMemory(
+            llm=self.llm,
+            memory_key="chat_history",
+            return_messages=True,
+            human_prefix="用户",
+            ai_prefix="助手"
+        )
     
     def run(self, question: str) -> str:
-        """
-        运行 Agent 处理问题
-        
-        Args:
-            question: 用户问题
-        
-        Returns:
-            最终回答
-        """
+        """运行 Agent 处理问题"""
         try:
-            messages = [HumanMessage(content=question)]
+            messages = [SystemMessage(content=self.SYSTEM_PROMPT)]
             
-            result = self.agent.invoke(
-                {"messages": messages},
-                config=self.config
-            )
+            if self.summary_memory.buffer:
+                messages.append(SystemMessage(
+                    content=f"之前的对话摘要: {self.summary_memory.buffer}"
+                ))
+            
+            messages.extend(self.memory[-self.MAX_MEMORY_TURNS:])
+            messages.append(HumanMessage(content=question))
+            
+            result = self.agent.invoke({"messages": messages})
             
             last_message = result["messages"][-1]
+            
+            self.memory.append(HumanMessage(content=question))
+            self.memory.append(last_message)
+            
+            self.summary_memory.save_context(
+                {"input": question},
+                {"output": last_message.content}
+            )
+            
+            if self.verbose and len(self.memory) > self.MAX_MEMORY_TURNS:
+                print(f"[记忆管理] 已自动摘要对话历史")
+            
             return last_message.content
         except Exception as e:
             return f"执行出错: {str(e)}"
@@ -131,7 +144,12 @@ class LangChainAgent:
     
     def clear_memory(self):
         """清空对话记忆"""
-        self.config = {"configurable": {"thread_id": f"agent_chat_{id(self)}"}}
+        self.memory = []
+        self.summary_memory.clear()
+    
+    def get_memory_summary(self) -> str:
+        """获取对话摘要"""
+        return self.summary_memory.buffer
 
 
 class LangChainAgentSimple:
@@ -139,7 +157,12 @@ class LangChainAgentSimple:
     简化版 LangChain Agent
     
     直接使用 LLM 绑定工具的方式，更简单直接
+    使用滑动窗口管理记忆
     """
+    
+    SYSTEM_PROMPT = """你是一个智能助手，请使用中文回答问题。你可以使用工具来帮助解决问题。"""
+    
+    MAX_MEMORY_TURNS = 10
     
     def __init__(
         self,
@@ -168,9 +191,9 @@ class LangChainAgentSimple:
     def run(self, question: str) -> str:
         """运行 Agent"""
         try:
-            messages = [
-                SystemMessage(content="你是一个智能助手，请使用中文回答问题。你可以使用工具来帮助解决问题。")
-            ] + self.memory + [HumanMessage(content=question)]
+            messages = [SystemMessage(content=self.SYSTEM_PROMPT)]
+            messages.extend(self.memory[-self.MAX_MEMORY_TURNS:])
+            messages.append(HumanMessage(content=question))
             
             response = self.llm_with_tools.invoke(messages)
             
@@ -202,7 +225,14 @@ class LangChainAgentSimple:
                         ))
                 
                 final_response = self.llm_with_tools.invoke(messages)
+                
+                self.memory.append(HumanMessage(content=question))
+                self.memory.append(AIMessage(content=final_response.content))
+                
                 return final_response.content
+            
+            self.memory.append(HumanMessage(content=question))
+            self.memory.append(AIMessage(content=response.content))
             
             return response.content
         except Exception as e:

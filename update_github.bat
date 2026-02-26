@@ -7,7 +7,7 @@ git status
 echo.
 echo Press any key to commit and push...
 pause >nul
-git commit -m "Update: Add project summary and cleanup"
+git commit -m "Update: Add skills module, LangChain agent, and improve context management"
 git push
 echo.
 echo Done! Press any key to exit...

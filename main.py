@@ -4,7 +4,7 @@ import sys
 from config import OPENAI_API_KEY, OPENAI_MODEL, VERBOSE
 from agent import ReActAgent, SimpleAgent
 from agent_langchain import LangChainAgent
-from tools import TOOLS
+from skills import ALL_SKILLS
 
 
 def print_banner():
@@ -12,7 +12,7 @@ def print_banner():
 ╔═══════════════════════════════════════════════════════════╗
 ║                    🤖 Agent 助手                          ║
 ║                                                           ║
-║  可用工具:                                                 ║
+║  可用技能:                                                 ║
 ║    • web_search       - 网络搜索（Tavily/DuckDuckGo）     ║
 ║    • get_weather      - 和风天气查询                      ║
 ║    • calculator       - 数学计算                          ║
@@ -21,7 +21,7 @@ def print_banner():
 ║                                                           ║
 ║  命令:                                                     ║
 ║    /clear  - 清空对话记忆                                  ║
-║    /tools  - 显示工具详情                                  ║
+║    /skills - 显示技能详情                                  ║
 ║    /switch - 切换 Agent 类型                               ║
 ║    /exit   - 退出程序                                      ║
 ╚═══════════════════════════════════════════════════════════╝
@@ -29,13 +29,13 @@ def print_banner():
     print(banner)
 
 
-def print_tools():
-    print("\n📋 可用工具详情:\n")
-    for name, tool in TOOLS.items():
+def print_skills():
+    print("\n📋 可用技能详情:\n")
+    for name, skill in ALL_SKILLS.items():
         print(f"  🔧 {name}")
-        print(f"     描述: {tool['description']}")
-        print(f"     参数: {tool['args']}")
-        print(f"     示例: {tool['example']}")
+        print(f"     描述: {skill['description']}")
+        print(f"     参数: {skill['args']}")
+        print(f"     示例: {skill['example']}")
         print()
 
 
@@ -57,17 +57,17 @@ def run_interactive():
         print("  1. 创建 .env 文件")
         print("  2. 添加以下内容:")
         print("     OPENAI_API_KEY=your_key")
-        print("     BING_API_KEY=your_key")
+        print("     TAVILY_API_KEY=your_key")
         print("     QWEATHER_API_KEY=your_key")
         return
     
     print(f"✅ 当前模型: {OPENAI_MODEL}")
     print("💬 开始对话 (输入问题后按回车)\n")
     
-    use_langchain = False
-    agent = ReActAgent(verbose=VERBOSE)
-    print("📌 当前使用: 手写版本 Agent")
-    print("   输入 /switch 切换到 LangChain 版本\n")
+    use_langchain = True
+    agent = LangChainAgent(verbose=VERBOSE)
+    print("📌 当前使用: LangChain 版本 Agent")
+    print("   输入 /switch 切换到手写版本\n")
     
     while True:
         try:
@@ -85,8 +85,8 @@ def run_interactive():
                 print("✅ 对话记忆已清空\n")
                 continue
             
-            if user_input == "/tools":
-                print_tools()
+            if user_input in ["/skills", "/tools"]:
+                print_skills()
                 continue
             
             if user_input == "/switch":
@@ -124,7 +124,8 @@ def run_demo():
     demo_questions = [
         "现在几点了？",
         "北京今天天气怎么样？",
-        "计算 123 乘以 456 等于多少",
+        "计算 123 乘以 456 等于多少", 
+        
     ]
     
     for question in demo_questions:

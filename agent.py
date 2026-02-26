@@ -1,10 +1,28 @@
+"""
+ReAct Agent 实现
+
+基于 ReAct (Reasoning + Acting) 模式的智能 Agent
+"""
+
 import json
 import re
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional
 from openai import OpenAI
 
 from config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL, MAX_ITERATIONS, VERBOSE
-from tools import TOOLS, get_tools_description, execute_tool
+from skills import ALL_SKILLS, get_skills_description
+
+
+def execute_skill(skill_name: str, skill_input: dict) -> str:
+    """执行指定技能"""
+    if skill_name not in ALL_SKILLS:
+        return f"错误: 未知技能 '{skill_name}'"
+    
+    skill = ALL_SKILLS[skill_name]
+    try:
+        return skill["func"](**skill_input)
+    except Exception as e:
+        return f"技能执行错误: {str(e)}"
 
 
 class ReActAgent:
@@ -65,19 +83,19 @@ Question: {input}
         )
         
         self.memory: List[Dict[str, str]] = []
-        self.tool_names = list(TOOLS.keys())
+        self.skill_names = list(ALL_SKILLS.keys())
     
     def _build_prompt(self, question: str, scratchpad: str = "") -> str:
         """构建完整的提示词"""
         return self.REACT_TEMPLATE.format(
-            tools_description=get_tools_description(),
-            tool_names=", ".join(self.tool_names),
+            tools_description=get_skills_description(),
+            tool_names=", ".join(self.skill_names),
             input=question,
             agent_scratchpad=scratchpad
         )
     
     def _parse_response(self, response: str) -> Dict:
-        """解析 LLM 响应，提取 Thought、Action、Action Input、Final Answer"""
+        """解析 LLM 响应"""
         result = {
             "thought": "",
             "action": None,
@@ -120,28 +138,16 @@ Question: {input}
             return f"LLM 调用错误: {str(e)}"
     
     def run(self, question: str, max_iterations: int = MAX_ITERATIONS) -> str:
-        """
-        运行 Agent 处理问题
-        
-        Args:
-            question: 用户问题
-            max_iterations: 最大迭代次数
-        
-        Returns:
-            最终回答
-        """
+        """运行 Agent 处理问题"""
         scratchpad = ""
         
-        messages = [
-            {"role": "system", "content": self.SYSTEM_PROMPT}
-        ]
+        messages = [{"role": "system", "content": self.SYSTEM_PROMPT}]
         
         for memory in self.memory[-5:]:
             messages.append(memory)
         
         for iteration in range(max_iterations):
             prompt = self._build_prompt(question, scratchpad)
-            
             current_messages = messages + [{"role": "user", "content": prompt}]
             
             if self.verbose:
@@ -160,12 +166,12 @@ Question: {input}
                 self.memory.append({"role": "assistant", "content": parsed["final_answer"]})
                 return parsed["final_answer"]
             
-            if parsed["action"] and parsed["action"] in TOOLS:
+            if parsed["action"] and parsed["action"] in ALL_SKILLS:
                 if self.verbose:
                     print(f"\n[执行工具] {parsed['action']}")
                     print(f"[工具输入] {parsed['action_input']}")
                 
-                observation = execute_tool(parsed["action"], parsed["action_input"])
+                observation = execute_skill(parsed["action"], parsed["action_input"])
                 
                 if self.verbose:
                     print(f"[工具输出] {observation}")
@@ -178,20 +184,12 @@ Question: {input}
                 scratchpad += f"\nThought: {parsed['thought']}\n"
                 if parsed["action"]:
                     scratchpad += f"Action: {parsed['action']}\n"
-                    scratchpad += f"Observation: 错误 - 未知工具 '{parsed['action']}'，可用工具: {', '.join(self.tool_names)}\n"
+                    scratchpad += f"Observation: 错误 - 未知工具 '{parsed['action']}'，可用工具: {', '.join(self.skill_names)}\n"
         
         return "抱歉，我无法在有限的步骤内完成这个任务。请尝试简化您的问题。"
     
     def chat(self, user_input: str) -> str:
-        """
-        对话接口，保持上下文记忆
-        
-        Args:
-            user_input: 用户输入
-        
-        Returns:
-            Agent 回复
-        """
+        """对话接口"""
         return self.run(user_input)
     
     def clear_memory(self):
@@ -200,10 +198,7 @@ Question: {input}
 
 
 class SimpleAgent:
-    """
-    简化版 Agent，使用 Function Calling
-    适用于支持 Function Calling 的模型
-    """
+    """简化版 Agent，使用 Function Calling"""
     
     def __init__(
         self,
@@ -232,18 +227,18 @@ class SimpleAgent:
                 "type": "function",
                 "function": {
                     "name": name,
-                    "description": tool["description"],
+                    "description": skill["description"],
                     "parameters": {
                         "type": "object",
                         "properties": {
                             k: {"type": "string", "description": v}
-                            for k, v in tool["args"].items()
+                            for k, v in skill["args"].items()
                         },
-                        "required": list(tool["args"].keys())
+                        "required": list(skill["args"].keys())
                     }
                 }
             }
-            for name, tool in TOOLS.items()
+            for name, skill in ALL_SKILLS.items()
         ]
     
     def run(self, question: str) -> str:
@@ -262,9 +257,8 @@ class SimpleAgent:
             
             message = response.choices[0].message
             
-            if message.content:
-                if self.verbose:
-                    print(f"[回复] {message.content}")
+            if message.content and self.verbose:
+                print(f"[回复] {message.content}")
             
             if message.tool_calls:
                 messages.append(message)
@@ -276,7 +270,7 @@ class SimpleAgent:
                     if self.verbose:
                         print(f"\n[调用工具] {tool_name}({tool_args})")
                     
-                    result = execute_tool(tool_name, tool_args)
+                    result = execute_skill(tool_name, tool_args)
                     
                     if self.verbose:
                         print(f"[工具结果] {result}")
